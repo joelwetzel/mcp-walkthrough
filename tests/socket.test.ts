@@ -190,6 +190,23 @@ describe("rootsToDirs", () => {
     ]);
   });
 
+  test("keeps plain absolute paths, which Cursor sends instead of file URIs", () => {
+    // Arrange
+    const roots = [
+      { uri: "/Users/me/Git/Skan AI/platform" },
+      { uri: "/Users/me/Git/Skan AI/platform/backend" },
+    ];
+
+    // Act
+    const result = rootsToDirs(roots);
+
+    // Assert
+    expect(result).toEqual([
+      "/Users/me/Git/Skan AI/platform",
+      "/Users/me/Git/Skan AI/platform/backend",
+    ]);
+  });
+
   test("skips roots that are not local files", () => {
     // Arrange
     const roots = [

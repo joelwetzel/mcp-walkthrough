@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const SOCKET_DIR = "/tmp";
@@ -35,10 +35,12 @@ export function socketCandidates(startDirs: string[]): string[] {
   return found;
 }
 
+// The spec requires file:// URIs, but Cursor sends plain absolute paths.
 // Roots that are not local folders, such as remote workspaces, can have no
 // bridge socket on this machine, so they are dropped.
 export function rootsToDirs(roots: { uri: string }[]): string[] {
   return roots.flatMap((root) => {
+    if (isAbsolute(root.uri)) return [root.uri];
     try {
       return [fileURLToPath(root.uri)];
     } catch {

@@ -369,10 +369,18 @@ async function refreshRoots(): Promise<void> {
     return;
   }
   try {
-    const { roots } = await server.server.listRoots();
+    // listRoots() rejects the whole reply when a root is not a file:// URI,
+    // which is what Cursor sends, so the URIs are checked by rootsToDirs.
+    const { roots } = await server.server.request(
+      { method: "roots/list" },
+      z.object({ roots: z.array(z.object({ uri: z.string() })) }),
+    );
     const dirs = rootsToDirs(roots);
     setRoots(dirs);
-    logger.info({ roots: dirs }, "MCP client roots");
+    logger.info(
+      { roots: roots.map((root) => root.uri), dirs },
+      "MCP client roots",
+    );
   } catch (error) {
     logger.warn({ err: error }, "Could not list MCP client roots");
   }
