@@ -114,11 +114,14 @@ export function activate(context: vscode.ExtensionContext) {
         const action = data.action as string;
         if (action === "next") return walkthrough.next();
         if (action === "prev") return walkthrough.prev();
+        if (action === "goto") return walkthrough.goto(data.step);
+        if (action === "pause") return walkthrough.pause();
+        if (action === "resume") return walkthrough.resume();
         if (action === "stop") {
           walkthrough.stop();
           return { ok: true, stopped: true };
         }
-        return { ok: true };
+        return { ok: false, error: `Unknown walkthrough action: ${action}` };
       }
 
       case "/walkthrough/status":
