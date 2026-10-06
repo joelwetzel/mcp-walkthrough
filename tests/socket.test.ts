@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { discoverSocket, socketPathForDir } from "../src/socket";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { socketCandidates, socketPathForDir } from "../src/socket";
 
 describe("socketPathForDir", () => {
   test("returns /tmp path with hash suffix", () => {
@@ -36,56 +37,137 @@ describe("socketPathForDir", () => {
   });
 });
 
-describe("discoverSocket", () => {
-  test("returns null when no socket exists", () => {
-    // Arrange
-    const cwd = "/nonexistent/path/that/does/not/exist";
+describe("socketCandidates", () => {
+  const created: string[] = [];
 
-    // Act
-    const result = discoverSocket(cwd);
-
-    // Assert
-    expect(result).toBeNull();
-  });
-
-  test("returns socket path when it exists for exact directory", async () => {
-    // Arrange
-    const dir = `/tmp/walkthrough-test-${Date.now()}`;
-    const { mkdirSync, writeFileSync, rmSync } = await import("node:fs");
-    mkdirSync(dir, { recursive: true });
+  function fakeSocketFor(dir: string): string {
     const socketPath = socketPathForDir(dir);
     writeFileSync(socketPath, "");
+    created.push(socketPath);
+    return socketPath;
+  }
+
+  function cleanup() {
+    for (const path of created.splice(0)) rmSync(path, { force: true });
+  }
+
+  test("returns nothing when no socket exists", () => {
+    // Arrange
+    const dirs = ["/nonexistent/path/that/does/not/exist"];
+
+    // Act
+    const result = socketCandidates(dirs);
+
+    // Assert
+    expect(result).toEqual([]);
+  });
+
+  test("returns the socket for the exact directory", () => {
+    // Arrange
+    const dir = `/tmp/walkthrough-test-${Date.now()}`;
+    mkdirSync(dir, { recursive: true });
+    const socketPath = fakeSocketFor(dir);
 
     try {
       // Act
-      const result = discoverSocket(dir);
+      const result = socketCandidates([dir]);
 
       // Assert
-      expect(result).toBe(socketPath);
+      expect(result).toEqual([socketPath]);
     } finally {
-      rmSync(socketPath, { force: true });
+      cleanup();
       rmSync(dir, { recursive: true, force: true });
     }
   });
 
-  test("walks up to find socket in parent directory", async () => {
+  test("walks up to find the socket of a parent directory", () => {
     // Arrange
     const parentDir = `/tmp/walkthrough-test-${Date.now()}`;
     const childDir = `${parentDir}/src/components`;
-    const { mkdirSync, writeFileSync, rmSync } = await import("node:fs");
     mkdirSync(childDir, { recursive: true });
-    const socketPath = socketPathForDir(parentDir);
-    writeFileSync(socketPath, "");
+    const socketPath = fakeSocketFor(parentDir);
 
     try {
       // Act
-      const result = discoverSocket(childDir);
+      const result = socketCandidates([childDir]);
 
       // Assert
-      expect(result).toBe(socketPath);
+      expect(result).toEqual([socketPath]);
     } finally {
-      rmSync(socketPath, { force: true });
+      cleanup();
       rmSync(parentDir, { recursive: true, force: true });
+    }
+  });
+
+  test("finds sockets for directories that are not on disk", () => {
+    // Arrange
+    const workspace = `/tmp/walkthrough-test-absent-${Date.now()}`;
+    const socketPath = fakeSocketFor(workspace);
+
+    try {
+      // Act
+      const result = socketCandidates([`${workspace}/src/deep`]);
+
+      // Assert
+      expect(result).toEqual([socketPath]);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("checks every start directory, keeping their order", () => {
+    // Arrange
+    const first = `/tmp/walkthrough-test-first-${Date.now()}`;
+    const second = `/tmp/walkthrough-test-second-${Date.now()}`;
+    const firstSocket = fakeSocketFor(first);
+    const secondSocket = fakeSocketFor(second);
+
+    try {
+      // Act
+      const result = socketCandidates([`${second}/lib`, `${first}/src`]);
+
+      // Assert
+      expect(result).toEqual([secondSocket, firstSocket]);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("lists the nearest socket first when nested folders both have one", () => {
+    // Arrange
+    const outer = `/tmp/walkthrough-test-outer-${Date.now()}`;
+    const inner = `${outer}/packages/app`;
+    const outerSocket = fakeSocketFor(outer);
+    const innerSocket = fakeSocketFor(inner);
+
+    try {
+      // Act
+      const result = socketCandidates([`${inner}/src`]);
+
+      // Assert
+      expect(result).toEqual([innerSocket, outerSocket]);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("lists a socket once when several start directories share it", () => {
+    // Arrange
+    const workspace = `/tmp/walkthrough-test-shared-${Date.now()}`;
+    const socketPath = fakeSocketFor(workspace);
+
+    try {
+      // Act
+      const result = socketCandidates([
+        `${workspace}/src/a`,
+        `${workspace}/src/b`,
+        workspace,
+      ]);
+
+      // Assert
+      expect(result).toEqual([socketPath]);
+    } finally {
+      cleanup();
     }
   });
 });
