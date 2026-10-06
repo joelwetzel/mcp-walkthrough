@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { MsEdgeTTS, OUTPUT_FORMAT } from "msedge-tts";
 
 let currentProcess: ChildProcess | null = null;
+let speechGeneration = 0;
 let edgeTts: MsEdgeTTS | null = null;
 let edgeTtsDir: string | null = null;
 let currentVoice: string | null = null;
@@ -28,7 +29,7 @@ export function stripMarkdown(text: string): string {
 
 function runProcess(cmd: string, args: string[]): Promise<void> {
   return new Promise((resolve) => {
-    stopSpeaking();
+    killPlayer();
 
     try {
       const proc = spawn(cmd, args, { stdio: "ignore" });
@@ -76,12 +77,16 @@ function getPlayerArgs(filePath: string): [string, string[]] | null {
   return null;
 }
 
-async function speakEdgeTts(text: string, voice: string): Promise<void> {
+async function speakEdgeTts(
+  text: string,
+  voice: string,
+  isCurrent: () => boolean,
+): Promise<void> {
   const tts = await getEdgeTts(voice);
   if (!edgeTtsDir) throw new Error("Edge TTS dir not initialized");
   const result = await tts.toFile(edgeTtsDir, text);
   const playerArgs = getPlayerArgs(result.audioFilePath);
-  if (playerArgs) {
+  if (playerArgs && isCurrent()) {
     await runProcess(...playerArgs);
   }
   try {
@@ -103,18 +108,27 @@ function speakNative(text: string): Promise<void> {
 }
 
 export async function speak(text: string, voice: string): Promise<void> {
+  // Edge TTS synthesizes before any player exists, so a stop during synthesis
+  // has nothing to kill; the generation check keeps that audio from playing.
+  const generation = speechGeneration;
+  const isCurrent = () => generation === speechGeneration;
   try {
-    await speakEdgeTts(text, voice);
+    await speakEdgeTts(text, voice, isCurrent);
   } catch {
-    await speakNative(text);
+    if (isCurrent()) await speakNative(text);
   }
 }
 
-export function stopSpeaking(): void {
+function killPlayer(): void {
   if (currentProcess) {
     currentProcess.kill();
     currentProcess = null;
   }
+}
+
+export function stopSpeaking(): void {
+  speechGeneration++;
+  killPlayer();
 }
 
 export function cleanupTts(): void {
