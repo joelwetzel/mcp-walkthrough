@@ -100,11 +100,11 @@ The single entry point for code presentation — dispatches by arguments.
 
 **Highlight only** (1 step without `explanation`): `{ "steps": [{ "file": "…", "line": 10, "endLine": 15 }] }`. Equivalent to `show_code`.
 
-**Navigation:** `{ "action": "next" | "prev" | "goto" | "stop" | "pause" | "resume" }`. For `goto`, pass `step` (0-based index).
+**Navigation:** `{ "action": "next" | "prev" | "goto" | "stop" | "pause" | "resume" }`. For `goto`, pass `step` (0-based index); it jumps to the start of that step. `pause` silences the tour where it is, and `resume` replays the current narration from its start. Next, previous and `goto` also resume a paused tour. Each returns the tour's status, or `{ ok: false, error }` when no tour is running or the step is out of range.
 
 **Clear bubbles:** `{ "action": "clear" }`.
 
-**Status:** call with no arguments — returns `{ active, currentStep, totalSteps, … }`.
+**Status:** call with no arguments — returns `{ ok, active, paused, currentStep, totalSteps, highlight, title }`. `currentStep` is 0-based and `null` when no tour is running; `highlight` is `{ index, total }` (0-based) while a highlight is narrating, otherwise `null`; `title` is the step's title or `null`.
 
 ### show_code
 
@@ -129,12 +129,13 @@ View or update global config. Changes persist across sessions.
 
 ### Keyboard Shortcuts
 
-Shown in the explanation bubble after the last highlight:
+Shown at the bottom of every tour bubble. They work only while a tour is running, so outside a tour `Cmd+Shift+arrow` keeps its usual text-selection behavior. Use `Ctrl` instead of `Cmd` on Windows and Linux.
 
 | Shortcut | Action |
 |---|---|
 | `Cmd+Shift+→` | Next step |
 | `Cmd+Shift+←` | Previous step |
+| `Cmd+Shift+↑` | Pause / resume |
 | `Cmd+Shift+↓` | Stop walkthrough |
 
 ## How It Works
