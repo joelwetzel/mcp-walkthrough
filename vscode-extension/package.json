@@ -36,12 +36,14 @@
       {
         "command": "walkthrough.next",
         "key": "ctrl+shift+right",
-        "mac": "cmd+shift+right"
+        "mac": "cmd+shift+right",
+        "when": "walkthrough.active"
       },
       {
         "command": "walkthrough.prev",
         "key": "ctrl+shift+left",
-        "mac": "cmd+shift+left"
+        "mac": "cmd+shift+left",
+        "when": "walkthrough.active"
       },
       {
         "command": "walkthrough.togglePause",
@@ -52,7 +54,8 @@
       {
         "command": "walkthrough.stop",
         "key": "ctrl+shift+down",
-        "mac": "cmd+shift+down"
+        "mac": "cmd+shift+down",
+        "when": "walkthrough.active"
       }
     ]
   },
