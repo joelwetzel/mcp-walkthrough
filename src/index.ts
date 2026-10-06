@@ -45,7 +45,11 @@ server.registerTool(
     description:
       "Open a file in VS Code and highlight specific lines without any explanation bubble. Use when the user asks to show, open, jump to, or point at specific code with no commentary needed. Do NOT use when you need to explain what the code does — use the walkthrough tool with a step that includes an `explanation`. Do NOT use for multi-step tours — use walkthrough with multiple steps. Line numbers are 1-based; character offsets are 0-based.",
     inputSchema: {
-      file: z.string().describe("Absolute path to the file"),
+      file: z
+        .string()
+        .describe(
+          "Absolute path to the file, inside a folder open in the editor",
+        ),
       line: z.number().describe("Start line (1-based)"),
       endLine: z.number().optional().describe("End line (1-based)"),
       startChar: z.number().optional().describe("Start character (0-based)"),
@@ -67,7 +71,9 @@ server.registerTool(
 );
 
 const stepSchema = z.object({
-  file: z.string().describe("Absolute path to the file"),
+  file: z
+    .string()
+    .describe("Absolute path to the file, inside a folder open in the editor"),
   line: z.number().describe("Start line (1-based)"),
   endLine: z.number().optional().describe("End line (1-based)"),
   startChar: z.number().optional().describe("Start character (0-based)"),

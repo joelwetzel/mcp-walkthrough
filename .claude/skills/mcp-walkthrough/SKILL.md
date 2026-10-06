@@ -20,6 +20,8 @@ Pattern:
 - `explanation` = short step intro (one or two sentences, sets context, narrated first)
 - `highlights[]` = one entry per point, each narrating one thought
 
+In a multi-step tour, every highlight's range must sit inside its step's `line`..`endLine` (a step without `endLine` covers only `line`), or the whole tour is rejected. To narrate lines further away, widen the step or give them their own step.
+
 **3. Write TTS-friendly prose. No numbered lists.** TTS reads `1.` `2.` `3.` as *"one dot… two dot… three dot"* — painful. Use flowing prose. If you must list, use `-` bullets, which read more naturally. Never use numbered lists in narration or explanation.
 
 **4. Markdown rules for explanations and narrations:**
@@ -52,6 +54,7 @@ When presenting a test file (any project), default to: one walkthrough **step pe
 - [ ] Line numbers verified against the actual file content
 - [ ] Step has a short `explanation` intro, not a wall of text
 - [ ] Multi-point steps have `highlights[]` — each one point, with its own `line`/`endLine` and `narration`
+- [ ] Every highlight's range sits inside its step's `line`..`endLine`
 - [ ] No numbered lists (`1.` `2.`) anywhere in explanation or narration
 - [ ] No `##` headers — `**bold**` instead
 - [ ] Paragraphs separated by real newlines, not escaped `\n`

@@ -2,7 +2,7 @@
 
 > **Auto-generated** - Run `scripts/generate-project-tree.sh` to update
 
-Last updated: 2026-10-06 12:17:27
+Last updated: 2026-10-06 12:18:49
 
 ## Directory Structure
 
