@@ -14,7 +14,7 @@ Works with **any MCP client**: Claude Code, Cursor, VS Code Copilot, Gemini CLI,
 ### All clients at once
 
 ```bash
-npx add-mcp walkthrough -- npx -y mcp-walkthrough
+npx add-mcp mcp-walkthrough --name walkthrough
 ```
 
 Auto-detects which AI coding tools you have and configures all of them.
