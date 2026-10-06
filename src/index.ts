@@ -82,8 +82,15 @@ const stepSchema = z.object({
   highlights: z
     .array(
       z.object({
-        line: z.number().describe("Start line (1-based)"),
-        endLine: z.number().optional().describe("End line (1-based)"),
+        line: z
+          .number()
+          .describe("Start line (1-based), at or after the step's `line`"),
+        endLine: z
+          .number()
+          .optional()
+          .describe(
+            "End line (1-based), at or before the step's `endLine` (or its `line` when the step has no `endLine`)",
+          ),
         narration: z
           .string()
           .describe(
@@ -93,7 +100,7 @@ const stepSchema = z.object({
     )
     .optional()
     .describe(
-      "The canonical pattern for any step with more than one point. Each entry narrates one thought; selection moves to its sub-range while the bubble text builds up — that is the teleprompter UX. Only omit when the step has a single point with nothing sub-range to emphasize.",
+      "The canonical pattern for any step with more than one point. Each entry narrates one thought; selection moves to its sub-range while the bubble text builds up — that is the teleprompter UX. Only omit when the step has a single point with nothing sub-range to emphasize. In a multi-step tour, every highlight's range must fall within its step's `line`..`endLine`, or the tour is rejected; to narrate lines further away, widen the step or give them their own step.",
     ),
 });
 
@@ -168,6 +175,10 @@ server.registerTool(
         const result = await startWalkthrough(
           dispatch.steps as WalkthroughStep[],
         );
+        return { content: [{ type: "text", text: JSON.stringify(result) }] };
+      }
+      case "invalid": {
+        const result = { ok: false, error: dispatch.error };
         return { content: [{ type: "text", text: JSON.stringify(result) }] };
       }
     }

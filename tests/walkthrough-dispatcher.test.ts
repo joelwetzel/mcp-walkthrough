@@ -167,6 +167,115 @@ describe("WalkthroughDispatcherUseCase", () => {
     });
   });
 
+  describe("invalid — a tour's highlights must sit inside their step", () => {
+    test("highlight outside its step returns invalid naming the step and both ranges", () => {
+      // Arrange
+      const { sut } = makeSUT();
+      const input = {
+        steps: [
+          { file: "/a.ts", line: 1, explanation: "intro" },
+          {
+            file: "/b.ts",
+            line: 290,
+            endLine: 325,
+            title: "Commit handler",
+            explanation: "x",
+            highlights: [
+              { line: 300, endLine: 310, narration: "inside" },
+              { line: 444, endLine: 455, narration: "outside" },
+            ],
+          },
+        ],
+      };
+
+      // Act
+      const result = sut.execute(input);
+
+      // Assert
+      expect(result.type).toBe("invalid");
+      if (result.type !== "invalid") return;
+      expect(result.error).toContain('Step 2 ("Commit handler")');
+      expect(result.error).toContain("444-455");
+      expect(result.error).toContain("290-325");
+    });
+
+    test("reports every highlight outside its step, not just the first", () => {
+      // Arrange
+      const { sut } = makeSUT();
+      const input = {
+        steps: [
+          {
+            file: "/a.ts",
+            line: 10,
+            endLine: 20,
+            explanation: "x",
+            highlights: [{ line: 5, narration: "before" }],
+          },
+          {
+            file: "/b.ts",
+            line: 30,
+            explanation: "y",
+            highlights: [{ line: 30, endLine: 31, narration: "past the end" }],
+          },
+        ],
+      };
+
+      // Act
+      const result = sut.execute(input);
+
+      // Assert
+      expect(result.type).toBe("invalid");
+      if (result.type !== "invalid") return;
+      expect(result.error).toContain("Step 1");
+      expect(result.error).toContain("5-5");
+      expect(result.error).toContain("Step 2");
+      expect(result.error).toContain("30-31");
+      expect(result.error).toContain("30-30");
+    });
+
+    test("highlights on the step's first and last lines start the tour", () => {
+      // Arrange
+      const { sut } = makeSUT();
+      const steps = [
+        {
+          file: "/a.ts",
+          line: 10,
+          endLine: 20,
+          explanation: "x",
+          highlights: [
+            { line: 10, narration: "first line" },
+            { line: 12, endLine: 20, narration: "through the last line" },
+          ],
+        },
+        { file: "/b.ts", line: 1, explanation: "y" },
+      ];
+
+      // Act
+      const result = sut.execute({ steps });
+
+      // Assert
+      expect(result).toEqual({ type: "startWalkthrough", steps });
+    });
+
+    test("a single explain keeps highlights outside its range, as before", () => {
+      // Arrange
+      const { sut } = makeSUT();
+      const step = {
+        file: "/a.ts",
+        line: 10,
+        endLine: 20,
+        explanation: "x",
+        highlights: [{ line: 40, narration: "elsewhere" }],
+      };
+
+      // Act
+      const result = sut.execute({ steps: [step] });
+
+      // Assert
+      expect(result).toEqual({ type: "singleExplain", step });
+    });
+  });
+
   describe("precedence — steps beat action, empty arrays fall through", () => {
     test("steps and action both provided: steps wins", () => {
       // Arrange
