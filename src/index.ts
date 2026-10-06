@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { RootsListChangedNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import {
   checkBridge,
@@ -14,11 +15,13 @@ import {
   getWalkthroughStatus,
   navigateWalkthrough,
   openFile,
+  setRoots,
   showExplanation,
   startWalkthrough,
   type WalkthroughStep,
 } from "./bridge.js";
 import { getConfig, updateConfig } from "./config.js";
+import { rootsToDirs } from "./socket.js";
 import { cleanupTts, listVoices, speak, stopSpeaking } from "./tts.js";
 import { WalkthroughDispatcherUseCase } from "./use-cases/walkthrough-dispatcher.js";
 import { flushLogs, logger } from "./utils/logger.js";
@@ -343,6 +346,21 @@ server.registerTool(
   },
 );
 
+async function refreshRoots(): Promise<void> {
+  if (!server.server.getClientCapabilities()?.roots) {
+    logger.info("MCP client does not offer roots");
+    return;
+  }
+  try {
+    const { roots } = await server.server.listRoots();
+    const dirs = rootsToDirs(roots);
+    setRoots(dirs);
+    logger.info({ roots: dirs }, "MCP client roots");
+  } catch (error) {
+    logger.warn({ err: error }, "Could not list MCP client roots");
+  }
+}
+
 async function main() {
   ensureExtensionInstalled();
 
@@ -382,6 +400,14 @@ async function main() {
 
   process.once("SIGINT", cleanup);
   process.once("SIGTERM", cleanup);
+
+  server.server.oninitialized = () => {
+    refreshRoots();
+  };
+  server.server.setNotificationHandler(
+    RootsListChangedNotificationSchema,
+    refreshRoots,
+  );
 
   await server.connect(transport);
 

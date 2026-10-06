@@ -13,6 +13,7 @@ import {
   navigateWalkthrough,
   openFile,
   resetBridgeState,
+  setRoots,
   showExplanation,
   startWalkthrough,
 } from "../src/bridge";
@@ -449,6 +450,19 @@ describe("finding the editor window", () => {
 
     // Act
     const result = await navigateWalkthrough("next");
+
+    // Assert
+    expect(result.window).toBe(workspace);
+  });
+
+  test("uses the MCP client's roots when the request names no file", async () => {
+    // Arrange
+    const workspace = `${TEST_DIR}-ws-a`;
+    await openWindow(workspace);
+    setRoots([workspace]);
+
+    // Act
+    const result = await getWalkthroughStatus();
 
     // Assert
     expect(result.window).toBe(workspace);

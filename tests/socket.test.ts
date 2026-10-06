@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { socketCandidates, socketPathForDir } from "../src/socket";
+import { rootsToDirs, socketCandidates, socketPathForDir } from "../src/socket";
 
 describe("socketPathForDir", () => {
   test("returns /tmp path with hash suffix", () => {
@@ -169,5 +169,50 @@ describe("socketCandidates", () => {
     } finally {
       cleanup();
     }
+  });
+});
+
+describe("rootsToDirs", () => {
+  test("converts file URIs to paths, decoding escaped characters", () => {
+    // Arrange
+    const roots = [
+      { uri: "file:///Users/me/Git/Skan%20AI/platform" },
+      { uri: "file:///Users/me/Git/other" },
+    ];
+
+    // Act
+    const result = rootsToDirs(roots);
+
+    // Assert
+    expect(result).toEqual([
+      "/Users/me/Git/Skan AI/platform",
+      "/Users/me/Git/other",
+    ]);
+  });
+
+  test("skips roots that are not local files", () => {
+    // Arrange
+    const roots = [
+      { uri: "https://example.com/repo" },
+      { uri: "vscode-remote://ssh-remote+box/home/me/repo" },
+      { uri: "file:///Users/me/Git/local" },
+    ];
+
+    // Act
+    const result = rootsToDirs(roots);
+
+    // Assert
+    expect(result).toEqual(["/Users/me/Git/local"]);
+  });
+
+  test("skips malformed URIs instead of throwing", () => {
+    // Arrange
+    const roots = [{ uri: "not a uri" }, { uri: "file:///Users/me/ok" }];
+
+    // Act
+    const result = rootsToDirs(roots);
+
+    // Assert
+    expect(result).toEqual(["/Users/me/ok"]);
   });
 });

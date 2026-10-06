@@ -58,10 +58,16 @@ type BridgeResult = Record<string, unknown>;
 
 export let bridgeAvailable: boolean | null = null;
 let lastSocket: string | null = null;
+let rootDirs: string[] = [];
 
 export function resetBridgeState(): void {
   bridgeAvailable = null;
   lastSocket = null;
+  rootDirs = [];
+}
+
+export function setRoots(dirs: string[]): void {
+  rootDirs = dirs;
 }
 
 // For testing: pin the window that answered last
@@ -89,7 +95,7 @@ function findSockets(hintFiles: string[]): {
   const fallbackDirs: string[] = [];
   const workspace = process.env.WALKTHROUGH_WORKSPACE;
   if (workspace) fallbackDirs.push(workspace);
-  fallbackDirs.push(process.cwd());
+  fallbackDirs.push(...rootDirs, process.cwd());
 
   const candidates = [
     ...socketCandidates(hintDirs),
