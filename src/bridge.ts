@@ -94,6 +94,7 @@ function socketRequest(
     const req = http.request(
       {
         socketPath: resolved,
+        agent: false,
         path: endpoint,
         method: "POST",
         headers: {
