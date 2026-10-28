@@ -1,6 +1,6 @@
 {
-  "name": "mcp-walkthrough",
-  "version": "0.4.0",
+  "name": "@joelwetzel/mcp-walkthrough",
+  "version": "0.5.0",
   "description": "MCP server for interactive code walkthroughs - Claude-driven code tours",
   "type": "module",
   "main": "dist/index.js",
@@ -16,9 +16,16 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/Stefan-Nitu/mcp-walkthrough.git"
+    "url": "https://github.com/joelwetzel/mcp-walkthrough.git"
+  },
+  "homepage": "https://github.com/joelwetzel/mcp-walkthrough#readme",
+  "bugs": {
+    "url": "https://github.com/joelwetzel/mcp-walkthrough/issues"
   },
   "author": "Stefan Nitu",
+  "contributors": [
+    "Joel Wetzel"
+  ],
   "license": "MIT",
   "keywords": [
     "mcp",
