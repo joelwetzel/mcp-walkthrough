@@ -1,7 +1,7 @@
-[![NPM Version](https://img.shields.io/npm/v/mcp-walkthrough)](https://www.npmjs.com/package/mcp-walkthrough)
-[![NPM Downloads](https://img.shields.io/npm/dm/mcp-walkthrough)](https://www.npmjs.com/package/mcp-walkthrough)
-[![CI Status](https://github.com/Stefan-Nitu/mcp-walkthrough/actions/workflows/ci.yml/badge.svg)](https://github.com/Stefan-Nitu/mcp-walkthrough/actions/workflows/ci.yml)
-[![MIT Licensed](https://img.shields.io/npm/l/mcp-walkthrough)](https://github.com/Stefan-Nitu/mcp-walkthrough/blob/main/LICENSE)
+[![NPM Version](https://img.shields.io/npm/v/@joelwetzel/mcp-walkthrough)](https://www.npmjs.com/package/@joelwetzel/mcp-walkthrough)
+[![NPM Downloads](https://img.shields.io/npm/dm/@joelwetzel/mcp-walkthrough)](https://www.npmjs.com/package/@joelwetzel/mcp-walkthrough)
+[![CI Status](https://github.com/joelwetzel/mcp-walkthrough/actions/workflows/ci.yml/badge.svg)](https://github.com/joelwetzel/mcp-walkthrough/actions/workflows/ci.yml)
+[![MIT Licensed](https://img.shields.io/npm/l/@joelwetzel/mcp-walkthrough)](https://github.com/joelwetzel/mcp-walkthrough/blob/main/LICENSE)
 
 # MCP Walkthrough
 
@@ -9,12 +9,18 @@ An MCP server for interactive code walkthroughs with voice narration. Opens file
 
 Works with **any MCP client**: Claude Code, Cursor, VS Code Copilot, Gemini CLI, Codex CLI, Windsurf.
 
+> **This is a maintained fork** of [Stefan-Nitu/mcp-walkthrough](https://github.com/Stefan-Nitu/mcp-walkthrough), published to npm as [`@joelwetzel/mcp-walkthrough`](https://www.npmjs.com/package/@joelwetzel/mcp-walkthrough). It adds:
+>
+> - **Reliable editor-window discovery**: requests reach the window that holds the files being shown, stale sockets are skipped, and MCP roots and a new `WALKTHROUGH_WORKSPACE` setting are honored ([upstream PR #2](https://github.com/Stefan-Nitu/mcp-walkthrough/pull/2))
+> - **Working tour controls**: pause, resume and goto actually run (upstream accepts and ignores them), status reports the tour's position, and the hotkeys are bound only while a tour runs ([upstream PR #7](https://github.com/Stefan-Nitu/mcp-walkthrough/pull/7))
+> - A working `add-mcp` install command
+
 ## Install
 
 ### All clients at once
 
 ```bash
-npx add-mcp mcp-walkthrough --name walkthrough
+npx add-mcp @joelwetzel/mcp-walkthrough --name walkthrough
 ```
 
 Auto-detects which AI coding tools you have and configures all of them.
@@ -27,7 +33,7 @@ Add to your MCP config (`mcpServers` key):
 {
   "walkthrough": {
     "command": "npx",
-    "args": ["-y", "mcp-walkthrough"]
+    "args": ["-y", "@joelwetzel/mcp-walkthrough"]
   }
 }
 ```
@@ -42,12 +48,16 @@ Add to your MCP config (`mcpServers` key):
 ### Skill (Claude Code)
 
 ```bash
-npx skills add stefan-nitu/mcp-walkthrough
+npx skills add joelwetzel/mcp-walkthrough
 ```
 
 Installs the walkthrough skill so Claude auto-loads the tools when you ask it to explain code.
 
 > **Note:** Requires VS Code, VS Code Insiders, or Cursor. A companion VS Code extension is automatically installed on `npm install`.
+
+### Switching from the original `mcp-walkthrough`
+
+Change `"mcp-walkthrough"` to `"@joelwetzel/mcp-walkthrough"` in the `args` of your existing `walkthrough` server config (or rerun the `add-mcp` command above), then restart your MCP client. The first run replaces the companion VS Code extension with this fork's version. Restart the editor afterwards (not just reload), since extension code is cached.
 
 ## What It Does
 
@@ -168,7 +178,7 @@ A socket nothing listens on, such as one a crashed window left behind, is skippe
 {
   "walkthrough": {
     "command": "npx",
-    "args": ["-y", "mcp-walkthrough"],
+    "args": ["-y", "@joelwetzel/mcp-walkthrough"],
     "env": { "WALKTHROUGH_WORKSPACE": "/absolute/path/to/project" }
   }
 }
@@ -191,7 +201,7 @@ A socket nothing listens on, such as one a crashed window left behind, is skippe
 
 ```bash
 bun install
-bun test              # 88 tests
+bun test              # 131 tests
 bun run build         # Builds MCP server + VS Code extension
 bun run typecheck     # Type checking
 bun run lint          # Biome linting
