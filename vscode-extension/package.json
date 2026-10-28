@@ -24,6 +24,10 @@
         "title": "Walkthrough: Previous Step"
       },
       {
+        "command": "walkthrough.togglePause",
+        "title": "Walkthrough: Pause or Resume"
+      },
+      {
         "command": "walkthrough.stop",
         "title": "Walkthrough: Stop"
       }
@@ -32,17 +36,26 @@
       {
         "command": "walkthrough.next",
         "key": "ctrl+shift+right",
-        "mac": "cmd+shift+right"
+        "mac": "cmd+shift+right",
+        "when": "walkthrough.active"
       },
       {
         "command": "walkthrough.prev",
         "key": "ctrl+shift+left",
-        "mac": "cmd+shift+left"
+        "mac": "cmd+shift+left",
+        "when": "walkthrough.active"
+      },
+      {
+        "command": "walkthrough.togglePause",
+        "key": "ctrl+shift+up",
+        "mac": "cmd+shift+up",
+        "when": "walkthrough.active"
       },
       {
         "command": "walkthrough.stop",
         "key": "ctrl+shift+down",
-        "mac": "cmd+shift+down"
+        "mac": "cmd+shift+down",
+        "when": "walkthrough.active"
       }
     ]
   },

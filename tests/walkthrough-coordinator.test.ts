@@ -393,5 +393,407 @@ describe("WalkthroughCoordinator", () => {
       expect(state.statusLabel).toContain("Step 1/1");
       expect(state.statusLabel).not.toContain("Highlight");
     });
+
+    test("paused tour says so", async () => {
+      // Arrange
+      const { sut, pull } = makeSUT();
+      sut.start([makeStep({ title: "Setup" }), makeStep()]);
+      await pull(); // show
+
+      // Act
+      sut.pause();
+
+      // Assert
+      const state = await pull();
+      expect(state.statusLabel).toContain("Paused");
+      expect(state.statusLabel).toContain("Step 1/2");
+      expect(state.statusLabel).toContain("Setup");
+    });
+  });
+
+  describe("pause", () => {
+    test("emits the current position without speech", async () => {
+      // Arrange
+      const { sut, pull } = makeSUT();
+      sut.start([makeStep()]);
+      await pull(); // show
+      sut.next("auto");
+      await pull(); // highlight
+
+      // Act
+      const result = sut.pause();
+
+      // Assert
+      expect(result).toEqual({ ok: true });
+      const state = await pull();
+      expect(state).toMatchObject({
+        phase: "highlight",
+        paused: true,
+        speak: null,
+      });
+    });
+
+    test("ignores auto-advance while paused", async () => {
+      // Arrange
+      const { sut, pull } = makeSUT(makeConfig({ autoplay: true }));
+      sut.start([makeStep(), makeStep()]);
+      await pull(); // show
+      sut.pause();
+      await pull(); // paused
+
+      // Act
+      sut.next("auto");
+
+      // Assert
+      await expectNothing(pull);
+    });
+
+    test("fails when no tour is running", () => {
+      // Arrange
+      const { sut } = makeSUT();
+
+      // Act
+      const result = sut.pause();
+
+      // Assert
+      expect(result).toEqual({ ok: false, error: "No walkthrough is running" });
+    });
+  });
+
+  describe("resume", () => {
+    test("replays the current narration", async () => {
+      // Arrange
+      const { sut, pull } = makeSUT();
+      sut.start([
+        makeStep({
+          highlights: [
+            { line: 5, narration: "First" },
+            { line: 10, narration: "Second" },
+          ],
+        }),
+      ]);
+      await pull(); // show
+      sut.next("auto");
+      await pull(); // highlight 1
+      sut.next("auto");
+      await pull(); // highlight 2
+      sut.pause();
+      await pull(); // paused
+
+      // Act
+      const result = sut.resume();
+
+      // Assert
+      expect(result).toEqual({ ok: true });
+      const state = await pull();
+      expect(state).toMatchObject({
+        phase: "highlight",
+        paused: false,
+        speak: "Second",
+      });
+    });
+
+    test("auto-advances after the replay", async () => {
+      // Arrange
+      const { sut, pull } = makeSUT();
+      sut.start([makeStep()]);
+      await pull(); // show
+      sut.pause();
+      await pull(); // paused
+      sut.resume();
+      await pull(); // show replay
+
+      // Act
+      sut.next("auto");
+
+      // Assert
+      const state = await pull();
+      expect(state.phase).toBe("highlight");
+    });
+
+    test("auto-advances when paused right after a manual step", async () => {
+      // Arrange
+      const { sut, pull } = makeSUT();
+      sut.start([makeStep()]);
+      await pull(); // show
+      sut.next("manual");
+      await pull(); // highlight
+      sut.pause();
+      await pull(); // paused
+      sut.resume();
+      await pull(); // highlight replay
+
+      // Act
+      sut.next("auto");
+
+      // Assert
+      const state = await pull();
+      expect(state.phase).toBe("idle");
+    });
+
+    test("fails when no tour is running", () => {
+      // Arrange
+      const { sut } = makeSUT();
+
+      // Act
+      const result = sut.resume();
+
+      // Assert
+      expect(result).toEqual({ ok: false, error: "No walkthrough is running" });
+    });
+  });
+
+  describe("next(manual) while paused", () => {
+    test("resumes at the next position and keeps auto-advancing", async () => {
+      // Arrange
+      const { sut, pull } = makeSUT();
+      sut.start([makeStep()]);
+      await pull(); // show
+      sut.pause();
+      await pull(); // paused
+      sut.next("manual");
+      const moved = await pull(); // highlight
+
+      // Act
+      sut.next("auto");
+
+      // Assert
+      expect(moved).toMatchObject({
+        phase: "highlight",
+        paused: false,
+        speak: "Default highlight",
+      });
+      const state = await pull();
+      expect(state.phase).toBe("idle");
+    });
+  });
+
+  describe("goto", () => {
+    test("jumps to the start of a step", async () => {
+      // Arrange
+      const { sut, pull } = makeSUT();
+      sut.start([makeStep(), makeStep(), makeStep()]);
+      await pull(); // step 0 show
+
+      // Act
+      const result = sut.goto(2);
+
+      // Assert
+      expect(result).toEqual({ ok: true });
+      const state = await pull();
+      expect(state).toMatchObject({ stepIndex: 2, phase: "show" });
+    });
+
+    test("swallows the auto-advance of the narration it cut off", async () => {
+      // Arrange
+      const { sut, pull } = makeSUT();
+      sut.start([makeStep(), makeStep()]);
+      await pull(); // step 0 show
+      sut.goto(1);
+      await pull(); // step 1 show
+
+      // Act
+      sut.next("auto");
+
+      // Assert
+      await expectNothing(pull);
+    });
+
+    test("resumes a paused tour", async () => {
+      // Arrange
+      const { sut, pull } = makeSUT();
+      sut.start([makeStep(), makeStep()]);
+      await pull(); // step 0 show
+      sut.pause();
+      await pull(); // paused
+
+      // Act
+      sut.goto(1);
+
+      // Assert
+      const state = await pull();
+      expect(state).toMatchObject({ stepIndex: 1, paused: false });
+      expect(state.speak).not.toBeNull();
+    });
+
+    test("rejects a step outside the tour", async () => {
+      // Arrange
+      const { sut, pull } = makeSUT();
+      sut.start([makeStep(), makeStep()]);
+      await pull();
+
+      // Act
+      const result = sut.goto(2);
+
+      // Assert
+      expect(result).toEqual({
+        ok: false,
+        error: "Step 2 is out of range; this tour has steps 0-1",
+      });
+      await expectNothing(pull);
+    });
+
+    test("rejects a step that is not a whole number", async () => {
+      // Arrange
+      const { sut, pull } = makeSUT();
+      sut.start([makeStep(), makeStep()]);
+      await pull();
+
+      // Act
+      const result = sut.goto(0.5);
+
+      // Assert
+      expect(result.ok).toBe(false);
+    });
+
+    test("fails when no tour is running", () => {
+      // Arrange
+      const { sut } = makeSUT();
+
+      // Act
+      const result = sut.goto(0);
+
+      // Assert
+      expect(result).toEqual({ ok: false, error: "No walkthrough is running" });
+    });
+  });
+
+  describe("status", () => {
+    test("reports no tour when inactive", () => {
+      // Arrange
+      const { sut } = makeSUT();
+
+      // Act
+      const status = sut.status();
+
+      // Assert
+      expect(status).toEqual({
+        active: false,
+        paused: false,
+        currentStep: null,
+        totalSteps: 0,
+        highlight: null,
+        title: null,
+      });
+    });
+
+    test("reports the step and highlight mid-tour", async () => {
+      // Arrange
+      const { sut, pull } = makeSUT();
+      sut.start([
+        makeStep(),
+        makeStep({
+          title: "Routing",
+          highlights: [
+            { line: 5, narration: "First" },
+            { line: 10, narration: "Second" },
+          ],
+        }),
+      ]);
+      await pull();
+      sut.goto(1);
+      await pull(); // step 1 show
+      sut.next("manual");
+      await pull(); // highlight 1
+      sut.next("manual");
+      await pull(); // highlight 2
+
+      // Act
+      const status = sut.status();
+
+      // Assert
+      expect(status).toEqual({
+        active: true,
+        paused: false,
+        currentStep: 1,
+        totalSteps: 2,
+        highlight: { index: 1, total: 2 },
+        title: "Routing",
+      });
+    });
+
+    test("reports a paused tour", async () => {
+      // Arrange
+      const { sut, pull } = makeSUT();
+      sut.start([makeStep()]);
+      await pull();
+      sut.pause();
+      await pull();
+
+      // Act
+      const status = sut.status();
+
+      // Assert
+      expect(status).toMatchObject({
+        active: true,
+        paused: true,
+        currentStep: 0,
+        highlight: null,
+      });
+    });
+
+    test("start clears a pause", async () => {
+      // Arrange
+      const { sut, pull } = makeSUT();
+      sut.start([makeStep()]);
+      await pull();
+      sut.pause();
+      await pull();
+
+      // Act
+      sut.start([makeStep()]);
+
+      // Assert
+      const state = await pull();
+      expect(state.paused).toBe(false);
+      expect(sut.status().paused).toBe(false);
+    });
+
+    test("stop clears a pause", async () => {
+      // Arrange
+      const { sut, pull } = makeSUT();
+      sut.start([makeStep()]);
+      await pull();
+      sut.pause();
+      await pull();
+
+      // Act
+      sut.stop();
+
+      // Assert
+      const state = await pull();
+      expect(state.paused).toBe(false);
+      expect(sut.status().paused).toBe(false);
+    });
+  });
+
+  describe("pause control", () => {
+    test("offers Pause while playing", async () => {
+      // Arrange
+      const { sut, pull } = makeSUT();
+      sut.start([makeStep()]);
+
+      // Act
+      const state = await pull();
+
+      // Assert
+      expect(state.bubble?.text).toContain("Shift+↑` **Pause**");
+      expect(state.bubble?.text).not.toContain("**Resume**");
+    });
+
+    test("offers Resume while paused", async () => {
+      // Arrange
+      const { sut, pull } = makeSUT();
+      sut.start([makeStep()]);
+      await pull();
+
+      // Act
+      sut.pause();
+
+      // Assert
+      const state = await pull();
+      expect(state.bubble?.text).toContain("Shift+↑` **Resume**");
+      expect(state.bubble?.text).not.toContain("**Pause**");
+    });
   });
 });

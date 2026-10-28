@@ -18,22 +18,55 @@ export interface WalkthroughState {
   bubble: { text: string; title: string } | null;
   speak: string | null;
   statusLabel: string | null;
+  paused: boolean;
 }
+
+export interface WalkthroughStatus {
+  active: boolean;
+  paused: boolean;
+  currentStep: number | null;
+  totalSteps: number;
+  highlight: { index: number; total: number } | null;
+  title: string | null;
+}
+
+export type ControlResult = { ok: true } | { ok: false; error: string };
 
 export function isActive(state: WalkthroughState): boolean {
   return state.phase !== "inactive";
 }
 
+const NOT_RUNNING: ControlResult = {
+  ok: false,
+  error: "No walkthrough is running",
+};
+
 const CONTROLS_MODIFIER = process.platform === "darwin" ? "Cmd" : "Ctrl";
-const CONTROLS = `\n\n---\n\`${CONTROLS_MODIFIER}+Shift+→\` **Next** &nbsp;&nbsp; **|** &nbsp;&nbsp; \`${CONTROLS_MODIFIER}+Shift+←\` **Prev** &nbsp;&nbsp; **|** &nbsp;&nbsp; \`${CONTROLS_MODIFIER}+Shift+↓\` **Stop**`;
+const CONTROL_SEPARATOR = " &nbsp;&nbsp; **|** &nbsp;&nbsp; ";
+
+function controlsLine(paused: boolean): string {
+  const control = (arrow: string, label: string) =>
+    `\`${CONTROLS_MODIFIER}+Shift+${arrow}\` **${label}**`;
+  const controls = [
+    control("→", "Next"),
+    control("←", "Prev"),
+    control("↑", paused ? "Resume" : "Pause"),
+    control("↓", "Stop"),
+  ];
+  return `\n\n---\n${controls.join(CONTROL_SEPARATOR)}`;
+}
 
 export interface WalkthroughCoordinator
   extends AsyncIterable<WalkthroughState> {
   start(steps: WalkthroughStep[]): void;
   next(type: "manual" | "auto"): void;
   prev(type: "manual" | "auto"): void;
+  goto(stepIndex: number): ControlResult;
+  pause(): ControlResult;
+  resume(): ControlResult;
   restart(): void;
   stop(): void;
+  status(): WalkthroughStatus;
 }
 
 function validateStep(step: WalkthroughStep) {
@@ -57,6 +90,7 @@ export function createWalkthroughCoordinator(
   let phase: NarrationPhase = "inactive";
   let highlightIndex = 0;
   let skipNextAuto = false;
+  let paused = false;
 
   let latest: WalkthroughState | null = null;
   let waiting: ((value: WalkthroughState) => void) | null = null;
@@ -92,6 +126,7 @@ export function createWalkthroughCoordinator(
       bubble: null,
       speak: null,
       statusLabel: null,
+      paused: false,
     };
   }
 
@@ -101,7 +136,7 @@ export function createWalkthroughCoordinator(
     const step = steps[stepIndex];
     if (!step) return inactiveState();
     const highlights = step.highlights ?? [];
-    const voiceEnabled = getConfig().voiceEnabled;
+    const voiceEnabled = getConfig().voiceEnabled && !paused;
 
     const stepLabel = `Step ${stepIndex + 1}/${steps.length}`;
     const hlCount = step.highlights?.length ?? 0;
@@ -112,7 +147,8 @@ export function createWalkthroughCoordinator(
     const title = step.title
       ? `${stepLabel}${hlLabel}: ${step.title}`
       : `${stepLabel}${hlLabel}`;
-    const statusLabel = `$(book) ${stepLabel}${hlLabel}${step.title ? ` · ${step.title}` : ""}`;
+    const statusIcon = paused ? "$(debug-pause) Paused ·" : "$(book)";
+    const statusLabel = `${statusIcon} ${stepLabel}${hlLabel}${step.title ? ` · ${step.title}` : ""}`;
 
     const bubbleBase = buildBubbleText(
       step.explanation,
@@ -141,9 +177,10 @@ export function createWalkthroughCoordinator(
       totalSteps: steps.length,
       file: step.file,
       selection,
-      bubble: { text: bubbleBase + CONTROLS, title },
+      bubble: { text: bubbleBase + controlsLine(paused), title },
       speak,
       statusLabel,
+      paused,
     };
   }
 
@@ -182,6 +219,7 @@ export function createWalkthroughCoordinator(
     phase = "show";
     highlightIndex = 0;
     skipNextAuto = false;
+    paused = false;
     latest = null;
     log(`start: ${newSteps.length} steps`);
     push();
@@ -191,17 +229,28 @@ export function createWalkthroughCoordinator(
     return steps[stepIndex]?.highlights?.length ?? 0;
   }
 
+  // A manual move cuts off the narration in flight, whose auto-advance must
+  // be swallowed. A paused tour has no narration in flight, so it only unpauses.
+  function takeManualControl() {
+    if (paused) {
+      paused = false;
+    } else {
+      skipNextAuto = true;
+    }
+  }
+
   function next(type: "manual" | "auto") {
     if (phase === "inactive") return;
 
     if (type === "auto") {
+      if (paused) return;
       if (skipNextAuto) {
         skipNextAuto = false;
         return;
       }
       if (phase === "idle" && !getConfig().autoplay) return;
     } else {
-      skipNextAuto = true;
+      takeManualControl();
     }
 
     if (phase === "show") {
@@ -234,7 +283,8 @@ export function createWalkthroughCoordinator(
 
   function prev(type: "manual" | "auto") {
     if (phase === "inactive") return;
-    if (type === "manual") skipNextAuto = true;
+    const wasPaused = paused;
+    if (type === "manual") takeManualControl();
 
     if (phase === "highlight") {
       if (highlightIndex > 0) {
@@ -248,7 +298,7 @@ export function createWalkthroughCoordinator(
         stepIndex--;
         phase = "show";
         highlightIndex = 0;
-      } else {
+      } else if (!wasPaused) {
         return;
       }
     }
@@ -257,9 +307,73 @@ export function createWalkthroughCoordinator(
     push();
   }
 
+  function goto(index: number): ControlResult {
+    if (phase === "inactive") return NOT_RUNNING;
+    if (!Number.isInteger(index) || index < 0 || index >= steps.length) {
+      return {
+        ok: false,
+        error: `Step ${index} is out of range; this tour has steps 0-${steps.length - 1}`,
+      };
+    }
+    takeManualControl();
+    stepIndex = index;
+    phase = "show";
+    highlightIndex = 0;
+    log(`goto: step=${stepIndex}`);
+    push();
+    return { ok: true };
+  }
+
+  function pause(): ControlResult {
+    if (phase === "inactive") return NOT_RUNNING;
+    if (paused) return { ok: true };
+    paused = true;
+    // The cut-off narration's auto-advance is ignored while paused, so a skip
+    // left over from a manual move would otherwise eat the first one after resume.
+    skipNextAuto = false;
+    log(`pause: step=${stepIndex} phase=${phase} hl=${highlightIndex}`);
+    push();
+    return { ok: true };
+  }
+
+  function resume(): ControlResult {
+    if (phase === "inactive") return NOT_RUNNING;
+    if (!paused) return { ok: true };
+    paused = false;
+    log(`resume: step=${stepIndex} phase=${phase} hl=${highlightIndex}`);
+    push();
+    return { ok: true };
+  }
+
+  function status(): WalkthroughStatus {
+    const step = steps[stepIndex];
+    if (phase === "inactive" || !step) {
+      return {
+        active: false,
+        paused: false,
+        currentStep: null,
+        totalSteps: 0,
+        highlight: null,
+        title: null,
+      };
+    }
+    const total = numHighlights();
+    return {
+      active: true,
+      paused,
+      currentStep: stepIndex,
+      totalSteps: steps.length,
+      highlight:
+        phase === "highlight" && total > 0
+          ? { index: highlightIndex, total }
+          : null,
+      title: step.title ?? null,
+    };
+  }
+
   function restart() {
-    skipNextAuto = true;
     if (phase === "inactive") return;
+    takeManualControl();
     if (numHighlights() > 0) {
       phase = "highlight";
       highlightIndex = 0;
@@ -276,6 +390,7 @@ export function createWalkthroughCoordinator(
     phase = "inactive";
     highlightIndex = 0;
     skipNextAuto = false;
+    paused = false;
     push();
   }
 
@@ -283,8 +398,12 @@ export function createWalkthroughCoordinator(
     start,
     next,
     prev,
+    goto,
+    pause,
+    resume,
     restart,
     stop,
+    status,
     [Symbol.asyncIterator]() {
       return {
         next: async () => ({ value: await read(), done: false }),

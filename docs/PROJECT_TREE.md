@@ -2,7 +2,7 @@
 
 > **Auto-generated** - Run `scripts/generate-project-tree.sh` to update
 
-Last updated: 2026-10-06 15:36:03
+Last updated: 2026-10-28 11:50:31
 
 ## Directory Structure
 
@@ -43,9 +43,6 @@ Last updated: 2026-10-06 15:36:03
 |   |-- walkthrough-coordinator.test.ts
 |   `-- walkthrough-dispatcher.test.ts
 |-- vscode-extension
-|   |-- out
-|   |   |-- extension.js
-|   |   `-- extension.js.map
 |   |-- src
 |   |   |-- config.ts
 |   |   |-- editor.ts
@@ -56,10 +53,8 @@ Last updated: 2026-10-06 15:36:03
 |   |   |-- walkthrough-coordinator.ts
 |   |   `-- walkthrough.ts
 |   |-- esbuild.js
-|   |-- package-lock.json
 |   |-- package.json
-|   |-- tsconfig.json
-|   `-- walkthrough-bridge.vsix
+|   `-- tsconfig.json
 |-- CLAUDE.md
 |-- README.md
 |-- biome.json
@@ -68,7 +63,7 @@ Last updated: 2026-10-06 15:36:03
 |-- tsconfig.build.json
 `-- tsconfig.json
 
-11 directories, 49 files
+10 directories, 45 files
 ```
 
 ## Statistics
