@@ -59,7 +59,7 @@ jobs:
       run: bun install
 
     - name: Build
-      run: tsc -p tsconfig.build.json
+      run: npx tsc -p tsconfig.build.json
 
     - name: Verify server starts on Node.js ${{ matrix.node-version }}
       run: |
