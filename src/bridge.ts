@@ -82,7 +82,13 @@ const UNREACHABLE_ERROR =
 
 // What connecting to a socket file nobody listens on fails with: a regular
 // file, a file removed since it was listed, or one a crashed window left behind.
-const DEAD_SOCKET_CODES = new Set(["ENOTSOCK", "ENOENT", "ECONNREFUSED"]);
+// Bun reports all of these as FailedToOpenSocket rather than the errno.
+const DEAD_SOCKET_CODES = new Set([
+  "ENOTSOCK",
+  "ENOENT",
+  "ECONNREFUSED",
+  "FailedToOpenSocket",
+]);
 
 // The files being shown name their window most reliably, so their folders come
 // first; the server's own working directory is often not the workspace at all
