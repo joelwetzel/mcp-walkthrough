@@ -4,7 +4,7 @@ import * as http from "node:http";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveAllCodeClis } from "./code-cli.js";
-import { discoverSocket } from "./socket.js";
+import { allBridgeSockets, socketCandidates } from "./socket.js";
 import { logger } from "./utils/logger.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -57,43 +57,70 @@ export function ensureExtensionInstalled(): void {
 type BridgeResult = Record<string, unknown>;
 
 export let bridgeAvailable: boolean | null = null;
-let socketPath: string | null = null;
+let lastSocket: string | null = null;
+let rootDirs: string[] = [];
 
 export function resetBridgeState(): void {
   bridgeAvailable = null;
-  socketPath = null;
+  lastSocket = null;
+  rootDirs = [];
 }
 
-// For testing: override socket path discovery
+export function setRoots(dirs: string[]): void {
+  rootDirs = dirs;
+}
+
+// For testing: pin the window that answered last
 export function _setSocketPath(path: string): void {
-  socketPath = path;
+  lastSocket = path;
 }
 
-function resolveSocketPath(): string | null {
-  if (!socketPath) {
-    socketPath = discoverSocket();
-  }
-  return socketPath;
+const NO_SOCKET_ERROR =
+  "No walkthrough bridge socket found. Make sure VS Code is open with a workspace.";
+const UNREACHABLE_ERROR =
+  "Could not reach VS Code. Make sure VS Code is open and reload the window if you just installed mcp-walkthrough.";
+
+// What connecting to a socket file nobody listens on fails with: a regular
+// file, a file removed since it was listed, or one a crashed window left behind.
+const DEAD_SOCKET_CODES = new Set(["ENOTSOCK", "ENOENT", "ECONNREFUSED"]);
+
+// The files being shown name their window most reliably, so their folders come
+// first; the server's own working directory is often not the workspace at all
+// (Cursor starts global MCP servers in the home directory).
+function findSockets(hintFiles: string[]): {
+  searched: string[];
+  candidates: string[];
+} {
+  const hintDirs = hintFiles.map((file) => dirname(file));
+  const fallbackDirs: string[] = [];
+  const workspace = process.env.WALKTHROUGH_WORKSPACE;
+  if (workspace) fallbackDirs.push(workspace);
+  fallbackDirs.push(...rootDirs, process.cwd());
+
+  const candidates = [
+    ...socketCandidates(hintDirs),
+    ...(lastSocket && existsSync(lastSocket) ? [lastSocket] : []),
+    ...socketCandidates(fallbackDirs),
+  ];
+  return {
+    searched: [...new Set([...hintDirs, ...fallbackDirs])],
+    candidates: [...new Set(candidates)],
+  };
 }
 
-function socketRequest(
+// Resolves null when nothing listens on the socket, so the next one can be
+// tried. Any other failure is returned rather than retried elsewhere, since
+// the window may already have acted on the request.
+function requestSocket(
+  socketPath: string,
   endpoint: string,
-  data: Record<string, unknown> = {},
-): Promise<BridgeResult> {
-  const resolved = resolveSocketPath();
-  if (!resolved) {
-    return Promise.resolve({
-      ok: false,
-      error:
-        "No walkthrough bridge socket found. Make sure VS Code is open with a workspace.",
-    });
-  }
-
+  body: string,
+): Promise<BridgeResult | null> {
   return new Promise((resolve) => {
-    const body = JSON.stringify(data);
     const req = http.request(
       {
-        socketPath: resolved,
+        socketPath,
+        agent: false,
         path: endpoint,
         method: "POST",
         headers: {
@@ -107,8 +134,9 @@ function socketRequest(
           responseData += chunk.toString();
         });
         res.on("end", () => {
+          bridgeAvailable = true;
+          lastSocket = socketPath;
           try {
-            bridgeAvailable = true;
             resolve(JSON.parse(responseData) as BridgeResult);
           } catch {
             resolve({ ok: false, error: "Invalid response from bridge" });
@@ -117,17 +145,58 @@ function socketRequest(
       },
     );
 
-    req.on("error", () => {
+    req.on("error", (error: NodeJS.ErrnoException) => {
+      if (error.code && DEAD_SOCKET_CODES.has(error.code)) {
+        resolve(null);
+        return;
+      }
       resolve({
         ok: false,
-        error:
-          "Could not reach VS Code. Make sure VS Code is open and reload the window if you just installed mcp-walkthrough.",
+        error: UNREACHABLE_ERROR,
+        unreachable: [socketPath],
       });
     });
 
     req.write(body);
     req.end();
   });
+}
+
+async function socketRequest(
+  endpoint: string,
+  data: Record<string, unknown> = {},
+  hintFiles: string[] = [],
+): Promise<BridgeResult> {
+  const { searched, candidates } = findSockets(hintFiles);
+  const body = JSON.stringify(data);
+
+  for (const socketPath of candidates) {
+    const result = await requestSocket(socketPath, endpoint, body);
+    if (result) return result;
+  }
+
+  if (candidates.length > 0) {
+    return {
+      ok: false,
+      error: UNREACHABLE_ERROR,
+      searched,
+      unreachable: candidates,
+      hint: "These sockets exist but nothing answers on them, which is what a closed or crashed editor window leaves behind. Reload the editor window to restart the bridge.",
+    };
+  }
+
+  const otherSockets = allBridgeSockets().length;
+  const elsewhere =
+    otherSockets > 0
+      ? `${otherSockets} other bridge socket(s) exist, but none for these folders. `
+      : "";
+  return {
+    ok: false,
+    error: NO_SOCKET_ERROR,
+    searched,
+    otherSockets,
+    hint: `${elsewhere}The bridge listens for the editor window's first workspace folder. Pass absolute file paths inside that folder, or set WALKTHROUGH_WORKSPACE to it in the MCP server's env.`,
+  };
 }
 
 export async function checkBridge(): Promise<boolean> {
@@ -148,7 +217,9 @@ export async function openFile(
   startChar?: number,
   endChar?: number,
 ): Promise<BridgeResult> {
-  return socketRequest("/open", { file, line, endLine, startChar, endChar });
+  return socketRequest("/open", { file, line, endLine, startChar, endChar }, [
+    file,
+  ]);
 }
 
 export async function showHighlight(
@@ -158,13 +229,11 @@ export async function showHighlight(
   explanation: string,
   title?: string,
 ): Promise<BridgeResult> {
-  return socketRequest("/highlight", {
-    file,
-    line,
-    endLine,
-    explanation,
-    title,
-  });
+  return socketRequest(
+    "/highlight",
+    { file, line, endLine, explanation, title },
+    [file],
+  );
 }
 
 export async function showExplanation(
@@ -177,16 +246,20 @@ export async function showExplanation(
   endChar?: number,
   highlights?: { line: number; endLine?: number; narration: string }[],
 ): Promise<BridgeResult> {
-  return socketRequest("/explain", {
-    file,
-    line,
-    endLine,
-    explanation,
-    title,
-    startChar,
-    endChar,
-    highlights,
-  });
+  return socketRequest(
+    "/explain",
+    {
+      file,
+      line,
+      endLine,
+      explanation,
+      title,
+      startChar,
+      endChar,
+      highlights,
+    },
+    [file],
+  );
 }
 
 export async function clearExplanations(): Promise<BridgeResult> {
@@ -213,7 +286,11 @@ export async function startWalkthrough(
   autoplay?: boolean,
   delayMs?: number,
 ): Promise<BridgeResult> {
-  return socketRequest("/walkthrough", { steps, autoplay, delayMs });
+  return socketRequest(
+    "/walkthrough",
+    { steps, autoplay, delayMs },
+    steps.map((step) => step.file),
+  );
 }
 
 export async function navigateWalkthrough(

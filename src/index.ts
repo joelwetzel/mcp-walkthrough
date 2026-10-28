@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { RootsListChangedNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import {
   checkBridge,
@@ -14,11 +15,13 @@ import {
   getWalkthroughStatus,
   navigateWalkthrough,
   openFile,
+  setRoots,
   showExplanation,
   startWalkthrough,
   type WalkthroughStep,
 } from "./bridge.js";
 import { getConfig, updateConfig } from "./config.js";
+import { rootsToDirs } from "./socket.js";
 import { cleanupTts, listVoices, speak, stopSpeaking } from "./tts.js";
 import { WalkthroughDispatcherUseCase } from "./use-cases/walkthrough-dispatcher.js";
 import { flushLogs, logger } from "./utils/logger.js";
@@ -42,7 +45,11 @@ server.registerTool(
     description:
       "Open a file in VS Code and highlight specific lines without any explanation bubble. Use when the user asks to show, open, jump to, or point at specific code with no commentary needed. Do NOT use when you need to explain what the code does — use the walkthrough tool with a step that includes an `explanation`. Do NOT use for multi-step tours — use walkthrough with multiple steps. Line numbers are 1-based; character offsets are 0-based.",
     inputSchema: {
-      file: z.string().describe("Absolute path to the file"),
+      file: z
+        .string()
+        .describe(
+          "Absolute path to the file, inside a folder open in the editor",
+        ),
       line: z.number().describe("Start line (1-based)"),
       endLine: z.number().optional().describe("End line (1-based)"),
       startChar: z.number().optional().describe("Start character (0-based)"),
@@ -64,7 +71,9 @@ server.registerTool(
 );
 
 const stepSchema = z.object({
-  file: z.string().describe("Absolute path to the file"),
+  file: z
+    .string()
+    .describe("Absolute path to the file, inside a folder open in the editor"),
   line: z.number().describe("Start line (1-based)"),
   endLine: z.number().optional().describe("End line (1-based)"),
   startChar: z.number().optional().describe("Start character (0-based)"),
@@ -79,8 +88,15 @@ const stepSchema = z.object({
   highlights: z
     .array(
       z.object({
-        line: z.number().describe("Start line (1-based)"),
-        endLine: z.number().optional().describe("End line (1-based)"),
+        line: z
+          .number()
+          .describe("Start line (1-based), at or after the step's `line`"),
+        endLine: z
+          .number()
+          .optional()
+          .describe(
+            "End line (1-based), at or before the step's `endLine` (or its `line` when the step has no `endLine`)",
+          ),
         narration: z
           .string()
           .describe(
@@ -90,7 +106,7 @@ const stepSchema = z.object({
     )
     .optional()
     .describe(
-      "The canonical pattern for any step with more than one point. Each entry narrates one thought; selection moves to its sub-range while the bubble text builds up — that is the teleprompter UX. Only omit when the step has a single point with nothing sub-range to emphasize.",
+      "The canonical pattern for any step with more than one point. Each entry narrates one thought; selection moves to its sub-range while the bubble text builds up — that is the teleprompter UX. Only omit when the step has a single point with nothing sub-range to emphasize. In a multi-step tour, every highlight's range must fall within its step's `line`..`endLine`, or the tour is rejected; to narrate lines further away, widen the step or give them their own step.",
     ),
 });
 
@@ -165,6 +181,10 @@ server.registerTool(
         const result = await startWalkthrough(
           dispatch.steps as WalkthroughStep[],
         );
+        return { content: [{ type: "text", text: JSON.stringify(result) }] };
+      }
+      case "invalid": {
+        const result = { ok: false, error: dispatch.error };
         return { content: [{ type: "text", text: JSON.stringify(result) }] };
       }
     }
@@ -343,6 +363,29 @@ server.registerTool(
   },
 );
 
+async function refreshRoots(): Promise<void> {
+  if (!server.server.getClientCapabilities()?.roots) {
+    logger.info("MCP client does not offer roots");
+    return;
+  }
+  try {
+    // listRoots() rejects the whole reply when a root is not a file:// URI,
+    // which is what Cursor sends, so the URIs are checked by rootsToDirs.
+    const { roots } = await server.server.request(
+      { method: "roots/list" },
+      z.object({ roots: z.array(z.object({ uri: z.string() })) }),
+    );
+    const dirs = rootsToDirs(roots);
+    setRoots(dirs);
+    logger.info(
+      { roots: roots.map((root) => root.uri), dirs },
+      "MCP client roots",
+    );
+  } catch (error) {
+    logger.warn({ err: error }, "Could not list MCP client roots");
+  }
+}
+
 async function main() {
   ensureExtensionInstalled();
 
@@ -382,6 +425,14 @@ async function main() {
 
   process.once("SIGINT", cleanup);
   process.once("SIGTERM", cleanup);
+
+  server.server.oninitialized = () => {
+    refreshRoots();
+  };
+  server.server.setNotificationHandler(
+    RootsListChangedNotificationSchema,
+    refreshRoots,
+  );
 
   await server.connect(transport);
 

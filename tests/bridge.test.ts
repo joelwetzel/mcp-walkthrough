@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import * as http from "node:http";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   _setSocketPath,
   checkBridge,
@@ -11,6 +13,7 @@ import {
   navigateWalkthrough,
   openFile,
   resetBridgeState,
+  setRoots,
   showExplanation,
   startWalkthrough,
 } from "../src/bridge";
@@ -48,7 +51,17 @@ function stopTestServer(): Promise<void> {
   });
 }
 
+// Discovery also walks up from the working directory and reads
+// WALKTHROUGH_WORKSPACE, so each test runs from an empty directory with the
+// variable unset, where no real editor window can answer.
+const originalCwd = process.cwd();
+const originalWorkspace = process.env.WALKTHROUGH_WORKSPACE;
+let scratchDir: string;
+
 beforeEach(async () => {
+  scratchDir = mkdtempSync(join(tmpdir(), "walkthrough-cwd-"));
+  process.chdir(scratchDir);
+  delete process.env.WALKTHROUGH_WORKSPACE;
   resetBridgeState();
   lastRequest = null;
   serverResponse = { ok: true };
@@ -58,6 +71,13 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await stopTestServer();
+  process.chdir(originalCwd);
+  rmSync(scratchDir, { recursive: true, force: true });
+  if (originalWorkspace === undefined) {
+    delete process.env.WALKTHROUGH_WORKSPACE;
+  } else {
+    process.env.WALKTHROUGH_WORKSPACE = originalWorkspace;
+  }
 });
 
 describe("checkBridge", () => {
@@ -281,5 +301,200 @@ describe("bridge connection loss and recovery", () => {
 
     // Assert - recovers
     expect(successResult.ok).toBe(true);
+  });
+});
+
+describe("finding the editor window", () => {
+  interface FakeWindow {
+    requests: string[];
+    close(): Promise<void>;
+  }
+
+  const windows: FakeWindow[] = [];
+  const plantedFiles: string[] = [];
+
+  // A window's bridge listens on the socket for its workspace folder and names
+  // that folder in every reply, so a test can tell which window answered.
+  function openWindow(workspace: string): Promise<FakeWindow> {
+    const socketPath = socketPathForDir(workspace);
+    const requests: string[] = [];
+    const server = http.createServer(async (req, res) => {
+      await new Promise((drained) => req.resume().on("end", drained));
+      requests.push(req.url || "");
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: true, window: workspace }));
+    });
+    return new Promise((resolve) => {
+      server.listen(socketPath, () => {
+        const window: FakeWindow = {
+          requests,
+          close: () =>
+            new Promise((done) => {
+              server.close(() => {
+                rmSync(socketPath, { force: true });
+                done();
+              });
+            }),
+        };
+        windows.push(window);
+        resolve(window);
+      });
+    });
+  }
+
+  // A socket file with nothing listening, as a crashed window leaves behind.
+  function plantStaleSocket(workspace: string): string {
+    const socketPath = socketPathForDir(workspace);
+    writeFileSync(socketPath, "");
+    plantedFiles.push(socketPath);
+    return socketPath;
+  }
+
+  beforeEach(() => {
+    resetBridgeState();
+  });
+
+  afterEach(async () => {
+    for (const window of windows.splice(0)) await window.close();
+    for (const path of plantedFiles.splice(0)) rmSync(path, { force: true });
+  });
+
+  test("finds the window from the file being shown when the server runs elsewhere", async () => {
+    // Arrange
+    const workspace = `${TEST_DIR}-ws-a`;
+    const window = await openWindow(workspace);
+
+    // Act
+    const result = await openFile(`${workspace}/src/index.ts`, 3);
+
+    // Assert
+    expect(result).toEqual({ ok: true, window: workspace });
+    expect(window.requests).toEqual(["/open"]);
+  });
+
+  test("sends each request to the window whose folder holds the file", async () => {
+    // Arrange
+    const workspaceA = `${TEST_DIR}-ws-a`;
+    const workspaceB = `${TEST_DIR}-ws-b`;
+    await openWindow(workspaceA);
+    await openWindow(workspaceB);
+
+    // Act
+    const inB = await showExplanation(`${workspaceB}/lib/b.ts`, 1, 2, "B");
+    const inA = await openFile(`${workspaceA}/src/a.ts`, 1);
+
+    // Assert
+    expect(inB.window).toBe(workspaceB);
+    expect(inA.window).toBe(workspaceA);
+  });
+
+  test("starts a tour in the window that holds its files", async () => {
+    // Arrange
+    const workspaceA = `${TEST_DIR}-ws-a`;
+    const workspaceB = `${TEST_DIR}-ws-b`;
+    await openWindow(workspaceA);
+    const windowB = await openWindow(workspaceB);
+
+    // Act
+    const result = await startWalkthrough([
+      { file: `${workspaceB}/one.ts`, line: 1, explanation: "one" },
+      { file: `${workspaceB}/two.ts`, line: 1, explanation: "two" },
+    ]);
+
+    // Assert
+    expect(result.window).toBe(workspaceB);
+    expect(windowB.requests).toEqual(["/walkthrough"]);
+  });
+
+  test("sends requests without a file to the window that answered last", async () => {
+    // Arrange
+    const workspace = `${TEST_DIR}-ws-b`;
+    const window = await openWindow(workspace);
+    await startWalkthrough([
+      { file: `${workspace}/one.ts`, line: 1, explanation: "one" },
+      { file: `${workspace}/two.ts`, line: 1, explanation: "two" },
+    ]);
+
+    // Act
+    const navigated = await navigateWalkthrough("next");
+    const status = await getWalkthroughStatus();
+
+    // Assert
+    expect(navigated.window).toBe(workspace);
+    expect(status.window).toBe(workspace);
+    expect(window.requests).toEqual([
+      "/walkthrough",
+      "/walkthrough/navigate",
+      "/walkthrough/status",
+    ]);
+  });
+
+  test("skips a stale socket and tries the next window", async () => {
+    // Arrange
+    const workspace = `${TEST_DIR}-ws-a`;
+    await openWindow(workspace);
+    plantStaleSocket(`${workspace}/packages/app`);
+
+    // Act
+    const result = await openFile(`${workspace}/packages/app/src/x.ts`, 1);
+
+    // Assert
+    expect(result).toEqual({ ok: true, window: workspace });
+  });
+
+  test("uses WALKTHROUGH_WORKSPACE when the request names no file", async () => {
+    // Arrange
+    const workspace = `${TEST_DIR}-ws-a`;
+    await openWindow(workspace);
+    process.env.WALKTHROUGH_WORKSPACE = workspace;
+
+    // Act
+    const result = await navigateWalkthrough("next");
+
+    // Assert
+    expect(result.window).toBe(workspace);
+  });
+
+  test("uses the MCP client's roots when the request names no file", async () => {
+    // Arrange
+    const workspace = `${TEST_DIR}-ws-a`;
+    await openWindow(workspace);
+    setRoots([workspace]);
+
+    // Act
+    const result = await getWalkthroughStatus();
+
+    // Assert
+    expect(result.window).toBe(workspace);
+  });
+
+  test("says where it looked when no window matches", async () => {
+    // Arrange
+    const file = "/nowhere/project/src/x.ts";
+
+    // Act
+    const result = await openFile(file, 1);
+
+    // Assert
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/No walkthrough bridge socket found/);
+    expect(result.searched).toContain("/nowhere/project/src");
+    expect(result.searched).toContain(process.cwd());
+    expect(typeof result.otherSockets).toBe("number");
+    expect(result.hint).toMatch(/WALKTHROUGH_WORKSPACE/);
+  });
+
+  test("names the sockets it found but could not reach", async () => {
+    // Arrange
+    const workspace = `${TEST_DIR}-ws-stale`;
+    const stale = plantStaleSocket(workspace);
+
+    // Act
+    const result = await openFile(`${workspace}/x.ts`, 1);
+
+    // Assert
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/Could not reach VS Code/);
+    expect(result.unreachable).toEqual([stale]);
   });
 });

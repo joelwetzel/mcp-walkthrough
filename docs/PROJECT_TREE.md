@@ -2,7 +2,7 @@
 
 > **Auto-generated** - Run `scripts/generate-project-tree.sh` to update
 
-Last updated: 2026-04-13 12:03:01
+Last updated: 2026-10-06 15:36:03
 
 ## Directory Structure
 
@@ -59,7 +59,6 @@ Last updated: 2026-04-13 12:03:01
 |   |-- package-lock.json
 |   |-- package.json
 |   |-- tsconfig.json
-|   |-- walkthrough-bridge-0.0.1.vsix
 |   `-- walkthrough-bridge.vsix
 |-- CLAUDE.md
 |-- README.md
@@ -69,7 +68,7 @@ Last updated: 2026-04-13 12:03:01
 |-- tsconfig.build.json
 `-- tsconfig.json
 
-11 directories, 50 files
+11 directories, 49 files
 ```
 
 ## Statistics

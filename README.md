@@ -14,7 +14,7 @@ Works with **any MCP client**: Claude Code, Cursor, VS Code Copilot, Gemini CLI,
 ### All clients at once
 
 ```bash
-npx add-mcp walkthrough -- npx -y mcp-walkthrough
+npx add-mcp mcp-walkthrough --name walkthrough
 ```
 
 Auto-detects which AI coding tools you have and configures all of them.
@@ -35,7 +35,7 @@ Add to your MCP config (`mcpServers` key):
 | Client | Config file |
 |---|---|
 | Claude Code | `.mcp.json` (project) or `~/.claude.json` (global) |
-| Cursor | `.cursor/mcp.json` |
+| Cursor | `.cursor/mcp.json` (project) or `~/.cursor/mcp.json` (global) |
 | VS Code Copilot | `.vscode/mcp.json` |
 | Windsurf | `~/.codeium/windsurf/mcp_config.json` |
 
@@ -150,6 +150,41 @@ AI Agent  →  MCP Server (stdio)  →  Unix socket  →  VS Code Extension  →
 5. Focus stays in your terminal — code appears in the editor beside it
 
 TTS runs in the VS Code extension, not the MCP server. Keyboard shortcuts trigger the same narration path as MCP tool calls.
+
+### Finding the editor window
+
+Each window's extension listens on a socket named after the window's first workspace folder. For every request, the server looks for that socket by walking up from each of these, in order:
+
+- the folders of the files the request shows, so a request reaches the window that holds its files
+- the window that answered last, so `next`, `stop` and status reach the window running the tour
+- `WALKTHROUGH_WORKSPACE`, if set
+- the workspace roots the MCP client reports, if it supports roots
+- the server's working directory
+
+A socket nothing listens on, such as one a crashed window left behind, is skipped. If none of these lead to your project, for example with a global config whose server starts in your home directory, set `WALKTHROUGH_WORKSPACE` to the folder open in the editor:
+
+```json
+{
+  "walkthrough": {
+    "command": "npx",
+    "args": ["-y", "mcp-walkthrough"],
+    "env": { "WALKTHROUGH_WORKSPACE": "/absolute/path/to/project" }
+  }
+}
+```
+
+## Troubleshooting
+
+**"No walkthrough bridge socket found"** means no editor window is listening for any folder the server searched. The error lists them in `searched`.
+
+- Check that the extension is installed: `cursor --list-extensions | grep walkthrough` (or `code --list-extensions`).
+- Opening a window should show "Walkthrough bridge listening on …". If it doesn't, reload the window.
+- `ls /tmp/walkthrough-bridge-*.sock` lists the sockets of open windows. The error's `otherSockets` counts them.
+- Pass absolute file paths inside the folder open in the editor, or set `WALKTHROUGH_WORKSPACE` as shown above.
+
+**"Could not reach VS Code"** means a socket exists but nothing answers on it, which is what a closed or crashed window leaves behind. The error lists those sockets in `unreachable`. Reload the editor window to restart the bridge.
+
+**"Highlight … is outside step range …"** means a highlight in a tour starts before its step's `line` or ends after its `endLine`. Widen the step's range, or give the highlight its own step.
 
 ## Development
 
